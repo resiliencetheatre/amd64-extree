@@ -158,3 +158,20 @@ options, overlay and shell syntax checks passed via scripts/check.sh. No
 package/image build or browser runtime test was performed. The clock advances
 with the user's live seconds display setting; logs supplied no confirmed GPU
 hang, so no speculative renderer workaround was committed.
+
+## Panasonic FZ55-1 input investigation (2026-10-15)
+
+User reports Weston starts on this machine but the touchpad is missing.
+/proc/bus/input/devices contains no touchpad or mouse. PCI enumeration shows
+Cannon Point-LP I2C 8086:9de8; the existing intel-lpss-pci driver matches it.
+The kernel lacks PINCTRL_CANNONLAKE. Added it to the external kernel config;
+Linux 6.12.47's pinctrl-cannonlake supports Cannon Point-LP ACPI INT34BB.
+The target's actual GPIO/touchpad ACPI identities have not yet been supplied,
+so this is a hardware-coverage fix pending confirmation, not a proven diagnosis.
+
+olddefconfig on a separate copy at output-amd64-check/linux-panasonic.config
+retains PINCTRL_CANNONLAKE=y with PINCTRL_INTEL, LPSS PCI, DesignWare platform
+I2C and I2C_HID_ACPI enabled. Only host Kconfig utilities were compiled; no
+kernel/image build was run. The PS/2 AUX-disabled message alone does not prove
+a PS/2 touchpad; no global i8042 workaround was added. Dell black-screen
+investigation remains unresolved. baseline-1 is unchanged.

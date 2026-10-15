@@ -324,3 +324,14 @@ After booting the updated image, run `live-browser` from the Weston terminal
 as `tech`; capture terminal output if another error occurs. The user confirmed
 that the browser works after this fix. Separate offline HTML, HTTPS and sandbox
 acceptance tests have not been recorded.
+
+### Panasonic FZ55-1 touchpad
+
+This Whiskey Lake / Cannon Point-LP machine requires additional platform
+coverage beyond the Dell: `CONFIG_PINCTRL_CANNONLAKE=y` is now selected for
+GPIO/pin control. Existing LPSS PCI support matches its I2C controller
+8086:9de8. The user confirms Weston starts, but touchpad operation with this
+addition is not yet tested. Rebuild with the `linux-reconfigure` and image
+commands in the Dell touchpad section, then inspect `/proc/bus/input/devices`
+and the I2C/HID kernel journal. If input is still absent, collect ACPI modaliases
+and deferred-probe messages before adding device-specific drivers or boot flags.
