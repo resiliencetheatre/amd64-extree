@@ -1,0 +1,1 @@
+tech 1000 tech 1000 ! /home/tech /bin/bash - Live desktop user

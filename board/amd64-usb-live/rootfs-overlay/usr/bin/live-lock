@@ -1,0 +1,2 @@
+#!/bin/sh
+exec weston-terminal --shell=/usr/bin/live-lock-console

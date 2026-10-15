@@ -1,0 +1,14 @@
+[Unit]
+Description=Close optional encrypted live data on shutdown
+After=local-fs.target
+Before=live-weston.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=/usr/bin/live-data lock
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

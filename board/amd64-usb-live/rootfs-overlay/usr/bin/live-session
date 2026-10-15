@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+[ "${XDG_RUNTIME_DIR:-}" = /run/user/1000 ]
+[ "$(stat -c '%u:%a' "$XDG_RUNTIME_DIR")" = 1000:700 ]
+export GDK_BACKEND=wayland
+export XDG_SESSION_TYPE=wayland
+renderer=gl
+case " $(cat /proc/cmdline) " in *' live.renderer=pixman '*) renderer=pixman; export LIBGL_ALWAYS_SOFTWARE=true;; esac
+cd /home/tech
+exec dbus-run-session -- weston --backend=drm --renderer="$renderer" --config=/etc/xdg/weston/weston.ini

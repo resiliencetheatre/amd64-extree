@@ -1,0 +1,2 @@
+#!/bin/sh
+exec MiniBrowser file:///usr/share/live/welcome.html

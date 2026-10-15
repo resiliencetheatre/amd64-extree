@@ -1,0 +1,4 @@
+#!/bin/sh
+sudo /usr/bin/live-data lock
+printf "Press Enter to close. "
+read -r answer

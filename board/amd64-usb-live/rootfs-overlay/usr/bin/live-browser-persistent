@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+[ ! -L /data/tech ] && [ -d /data/tech ] || { echo 'Unlock Data first.' >&2; exit 1; }
+# Retain this cwd in the waiting wrapper to prevent an unmount during launch/use.
+cd /data/tech
+sudo /usr/bin/live-data status
+umask 077
+mkdir -p Browser/config Browser/data Browser/cache
+export XDG_CONFIG_HOME=/data/tech/Browser/config
+export XDG_DATA_HOME=/data/tech/Browser/data
+export XDG_CACHE_HOME=/data/tech/Browser/cache
+# GTK MiniBrowser uses GLib XDG data/cache directories in this version.
+# Keep the wrapper alive, retaining cwd until the browser exits.
+MiniBrowser file:///usr/share/live/welcome.html &
+child=$!
+wait "$child"

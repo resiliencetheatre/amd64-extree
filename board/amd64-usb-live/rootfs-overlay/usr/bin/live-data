@@ -1,0 +1,62 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV CDPATH
+fail() { echo "Data: $*" >&2; exit 1; }
+[[ $EUID == 0 && $# == 1 ]] || fail 'requires one operation as root'
+[[ $1 == unlock || $1 == lock || $1 == status ]] || fail 'unsupported operation'
+[[ -d /run/live && ! -L /run/live && ! -L /data && -d /data ]] || fail 'unsafe directories'
+exec 9>/run/live/data.lock
+flock -x 9
+if [[ $1 == lock && ! -e /dev/mapper/live-data ]] && ! mountpoint -q /data; then exit 0; fi
+rootdev=$(cat /run/live/root-device)
+[[ -b $rootdev ]] || fail 'boot device missing'
+parent=$(lsblk -dnro PKNAME "$rootdev")
+[[ -n $parent && $parent != */* ]] || fail 'invalid boot disk'
+partition() { lsblk -nrpo NAME,PARTN "/dev/$parent" | awk -v n="$1" '$2 == n {print $1}'; }
+efi=$(partition 1); data=$(partition 3)
+[[ -b $efi && -b $data ]] || fail 'no optional data partition'
+mkdir -p /run/live/efi
+[[ ! -L /run/live/efi ]] || fail 'unsafe EFI mountpoint'
+! mountpoint -q /run/live/efi || fail 'EFI mountpoint occupied'
+mount -t vfat -o ro,nosuid,nodev,noexec "$efi" /run/live/efi
+trap 'umount /run/live/efi' EXIT
+manifest=/run/live/efi/live-data.conf
+[[ -f $manifest && ! -L $manifest ]] || fail 'no provisioning manifest'
+mapfile -t fields <"$manifest"
+[[ ${#fields[@]} == 3 ]] || fail 'invalid manifest'
+[[ ${fields[0]} == ROOT_PARTUUID=* && ${fields[1]} == DATA_PARTUUID=* && ${fields[2]} == LUKS_UUID=* ]] || fail 'invalid manifest keys'
+rootid=${fields[0]#*=}; partid=${fields[1]#*=}; luksid=${fields[2]#*=}
+for id in "$rootid" "$partid" "$luksid"; do
+ [[ $id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail 'invalid UUID'
+done
+[[ $(blkid -s PARTUUID -o value "$rootdev") == "$rootid" ]] || fail 'boot identity mismatch'
+[[ $(blkid -s PARTUUID -o value "$data") == "$partid" ]] || fail 'data identity mismatch'
+[[ $(cryptsetup luksUUID "$data") == "$luksid" ]] || fail 'LUKS identity mismatch'
+umount /run/live/efi
+trap - EXIT
+if [[ -e /dev/mapper/live-data ]]; then
+ backing=$(cryptsetup status live-data | awk '$1 == "device:" {print $2}')
+ [[ $(readlink -f "$backing") == "$(readlink -f "$data")" ]] || fail 'mapping belongs to another device'
+fi
+mount_ok() { [[ $(findmnt -nro MAJ:MIN --mountpoint /data) == "$(lsblk -dnro MAJ:MIN /dev/mapper/live-data)" ]]; }
+if [[ $1 == status ]]; then
+ mountpoint -q /data && [[ -e /dev/mapper/live-data ]] && mount_ok || fail "data is not correctly mounted"
+ exit 0
+fi
+if [[ $1 == lock ]]; then
+ if mountpoint -q /data; then
+  [[ -e /dev/mapper/live-data ]] && mount_ok || fail 'unexpected filesystem at /data'
+  umount /data || fail 'busy: close files and browser, leave /data, then retry'
+ fi
+ if [[ -e /dev/mapper/live-data ]]; then cryptsetup close live-data; fi
+ exit 0
+fi
+if mountpoint -q /data; then mount_ok || fail 'unexpected filesystem at /data'; echo 'Already unlocked'; exit 0; fi
+opened=0
+if [[ ! -e /dev/mapper/live-data ]]; then cryptsetup open --type luks2 "$data" live-data </dev/tty; opened=1; fi
+if ! mount -t ext4 -o nosuid,nodev /dev/mapper/live-data /data; then
+ if [[ $opened == 1 ]]; then cryptsetup close live-data; fi
+ fail 'mount failed; filesystem was not reformatted'
+fi
+echo 'Data available at /data/tech/Documents'

@@ -1,0 +1,31 @@
+#!/bin/sh
+export PATH=/bin:/sbin
+fail() { echo "Live boot failed: $*" >/dev/console; exec sh </dev/console >/dev/console 2>&1; }
+mount -t devtmpfs devtmpfs /dev
+exec </dev/console >/dev/console 2>&1
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+rootid=
+for arg in $(cat /proc/cmdline); do
+ case "$arg" in live.root=*) rootid=${arg#live.root=};; esac
+done
+case "$rootid" in ????????-????-????-????-????????????) ;; *) fail 'missing live.root PARTUUID';; esac
+mkdir -p /run /newroot
+mount -t tmpfs -o mode=0755 tmpfs /run || fail tmpfs
+mkdir -p /run/live/lower /run/live/rw/upper /run/live/rw/work
+n=0
+while [ "$n" -lt 30 ]; do
+ dev=$(blkid -t PARTUUID="$rootid" -o device 2>/dev/null)
+ [ -b "$dev" ] && break
+ sleep 1; n=$((n+1))
+done
+[ -b "$dev" ] || fail "USB system partition $rootid absent after 30 seconds"
+mount -t squashfs -o ro "$dev" /run/live/lower || fail squashfs
+mount -t overlay overlay -o lowerdir=/run/live/lower,upperdir=/run/live/rw/upper,workdir=/run/live/rw/work /newroot || fail overlay
+mkdir -p /newroot/run /newroot/dev /newroot/proc /newroot/sys
+printf '%s\n' "$dev" >/run/live/root-device
+mount --move /run /newroot/run || fail 'move backing mounts'
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+exec switch_root /newroot /sbin/init

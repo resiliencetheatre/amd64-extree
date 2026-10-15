@@ -1,0 +1,4 @@
+/output*/
+/downloads/
+*.img
+__pycache__/

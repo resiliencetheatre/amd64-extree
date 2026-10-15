@@ -1,0 +1,1 @@
+tech ALL=(root) NOPASSWD: /usr/bin/live-data unlock, /usr/bin/live-data lock, /usr/bin/live-data status, /usr/bin/systemctl poweroff
