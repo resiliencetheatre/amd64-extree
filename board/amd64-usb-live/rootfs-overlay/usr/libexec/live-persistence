@@ -1,0 +1,210 @@
+#!/bin/bash
+# Root-only pre-login setup. No passphrases are read by this script.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV CDPATH
+umask 077
+fail() { echo "Persistence: $*" >&2; exit 1; }
+[[ $EUID == 0 && $# == 1 ]] || fail 'requires one operation as root'
+# Reject symlink traversal for every directory used as a privileged mount/state path.
+safe_dir() {
+ local path=$1 part current=
+ [[ $path == /* ]] || fail 'absolute directory required'
+ IFS=/ read -ra parts <<<"$path"
+ for part in "${parts[@]}"; do
+  [[ -z $part ]] && continue
+  [[ $part != . && $part != .. ]] || fail 'invalid directory'
+  current+=/$part
+  [[ ! -L $current ]] || fail "symlink at $current"
+  [[ ! -e $current || -d $current ]] || fail "not a directory: $current"
+ done
+ mkdir -p "$path"
+}
+boot_disk() {
+ local mounted parent
+ rootdev=$(cat /run/live/root-device)
+ [[ -b $rootdev ]] || fail 'boot system partition absent'
+ rootdev=$(readlink -f "$rootdev")
+ mounted=$(findmnt -nro MAJ:MIN --mountpoint /run/live/lower)
+ [[ $mounted == "$(lsblk -dnro MAJ:MIN "$rootdev")" ]] || fail 'live lower mount identity mismatch'
+ [[ $(findmnt -nro FSTYPE --mountpoint /run/live/lower) == squashfs ]] || fail 'live lower is not SquashFS'
+ [[ ,$(findmnt -nro OPTIONS --mountpoint /run/live/lower), == *,ro,* ]] || fail 'live lower must be read-only'
+ [[ $(lsblk -dnro PARTN "$rootdev") == 2 ]] || fail 'expected system partition 2'
+ parent=$(lsblk -dnro PKNAME "$rootdev")
+ [[ -n $parent && $parent != */* ]] || fail 'ambiguous boot disk'
+ disk=/dev/$parent
+ [[ $(lsblk -dnro TYPE "$disk") == disk && $(lsblk -dnro TRAN "$disk") == usb ]] || fail 'first-boot persistence requires a verified USB disk'
+ [[ $(blkid -p -s PTTYPE -o value "$disk") == gpt ]] || fail 'expected GPT'
+ [[ $(blockdev --getss "$disk") == 512 && $(blockdev --getro "$disk") == 0 ]] || fail 'requires writable 512-byte-sector USB'
+ efi=$(lsblk -nrpo NAME,PARTN "$disk" | awk '$2 == 1 {print $1}')
+ [[ -b $efi && $(blkid -s TYPE -o value "$efi") == vfat ]] || fail 'EFI partition absent'
+ [[ $(lsblk -dnro PARTTYPE "$efi") == c12a7328-f81f-11d2-ba4b-00a0c93ec93b ]] || fail 'unexpected EFI partition type'
+ rootid=$(blkid -s PARTUUID -o value "$rootdev")
+ [[ $rootid =~ ^[0-9a-f-]{36}$ ]] || fail 'invalid root identity'
+}
+efi_mount() {
+ safe_dir /run/live/setup-efi
+ ! mountpoint -q /run/live/setup-efi || fail 'setup mountpoint occupied'
+ mount -t vfat -o "$1",nosuid,nodev,noexec "$efi" /run/live/setup-efi
+}
+# Fail closed on any extra partition, holder, swap, or unexpected mount.
+creation_checks() {
+ local node mm mounts
+ [[ $(lsblk -nrpo NAME,TYPE "$disk" | awk '$2 == "part" {n++} END {print n+0}') == 2 ]] || fail 'existing extra partitions: will not repartition'
+ while read -r node; do
+  [[ -z $(ls -A "/sys/class/block/$(basename "$node")/holders") ]] || fail "active holder on $node"
+  mm=$(lsblk -dnro MAJ:MIN "$node")
+  mounts=$(findmnt -rn -o MAJ:MIN,TARGET | awk -v mm="$mm" '$1 == mm {print $2}')
+  if [[ $node == "$rootdev" ]]; then
+   [[ $mounts == /run/live/lower ]] || fail 'unexpected system mounts'
+  elif [[ $node == "$efi" ]]; then
+   [[ -z $mounts || $mounts == /run/live/setup-efi ]] || fail 'unexpected EFI mounts'
+  else
+   [[ -z $mounts ]] || fail "mounted disk: $node"
+  fi
+ done < <(lsblk -nrpo NAME "$disk")
+ # No swap is expected in this appliance; refuse all active swap for setup.
+ [[ $(wc -l </proc/swaps) == 1 ]] || fail 'active swap: refusing partition changes'
+ local end sectors
+ end=$(sgdisk -i 2 "$disk" | awk '/Last sector:/ {print $3}')
+ sectors=$(blockdev --getsz "$disk")
+ [[ $end =~ ^[0-9]+$ && $sectors =~ ^[0-9]+$ ]] || fail 'cannot determine partition geometry'
+ start=$(( ((end+1+2047)/2048)*2048 ))
+ (( sectors-34-start >= 2097152 )) || fail 'at least 1 GiB unused tail space required'
+}
+probe() {
+ boot_disk
+ efi_mount ro
+ trap 'umount /run/live/setup-efi' EXIT
+ [[ ! -e /run/live/setup-efi/live-data.pending ]] || fail 'incomplete provisioning detected; inspect manually, never retry formatting automatically'
+ if [[ -e /run/live/setup-efi/live-data.conf ]]; then
+  [[ -f /run/live/setup-efi/live-data.conf && ! -L /run/live/setup-efi/live-data.conf ]] || fail 'invalid manifest file'
+  echo 'Existing persistent data manifest found.'
+ else
+  creation_checks
+  echo 'No data partition: first-boot creation is available.'
+  return 10
+ fi
+}
+create() {
+ for tool in sgdisk partx wipefs lsblk findmnt flock blockdev cryptsetup mkfs.ext4 udevadm sync; do
+  command -v "$tool" >/dev/null || fail "missing provisioning tool: $tool"
+ done
+ boot_disk
+ exec 9>/run/live/data.lock
+ flock -x 9
+ efi_mount rw
+ mapped=0
+ cleanup_create() {
+  if [[ $mapped == 1 ]]; then cryptsetup close live-data || true; fi
+  umount /run/live/setup-efi || true
+ }
+ trap cleanup_create EXIT
+ [[ ! -e /run/live/setup-efi/live-data.conf && ! -e /run/live/setup-efi/live-data.pending ]] || fail 'existing or incomplete data setup; refusing creation'
+ creation_checks
+ [[ ! -e /dev/mapper/live-data ]] || fail 'mapping name already occupied'
+ lsblk -o NAME,TYPE,SIZE,MODEL,SERIAL,TRAN,MOUNTPOINTS "$disk"
+ echo 'Create encrypted storage in UNUSED SPACE on this boot USB only.'
+ echo 'EFI and system partitions will be preserved. Existing data outside them may be overwritten.'
+ printf 'Type CREATE %s to continue: ' "$disk"
+ read -r answer
+ [[ $answer == "CREATE $disk" ]] || fail 'creation cancelled'
+ creation_checks
+ # Durable interruption marker is written before any partition-table change.
+ printf 'ROOT_PARTUUID=%s\n' "$rootid" >/run/live/setup-efi/live-data.pending
+ sync
+ sgdisk --backup=/run/live/setup-efi/live-gpt-before-data.bin "$disk"
+ before=$( { sgdisk -i 1 "$disk"; sgdisk -i 2 "$disk"; } )
+ # Relocate backup GPT and add only partition 3, leaving all existing GUIDs intact.
+ sgdisk -e -n "3:$start:0" -t 3:8309 -c 3:live-data "$disk"
+ after=$( { sgdisk -i 1 "$disk"; sgdisk -i 2 "$disk"; } )
+ [[ $before == "$after" ]] || fail 'existing partition metadata changed; stop and inspect'
+ # Add the new partition without rereading/removing the mounted system partition.
+ if [[ -z $(lsblk -nrpo NAME,PARTN "$disk" | awk '$2 == 3 {print $1}') ]]; then
+  partx --add --nr 3 "$disk"
+ fi
+ udevadm settle --timeout=15
+ data=$(lsblk -nrpo NAME,PARTN "$disk" | awk '$2 == 3 {print $1}')
+ [[ -b $data ]] || fail 'new partition not visible; reboot and inspect pending setup'
+ [[ -z $(wipefs --no-act --noheadings --output TYPE "$data") ]] || fail 'existing signatures in new extent; inspect manually'
+ echo 'Enter a NEW encryption passphrase twice. It is not saved by the live system.'
+ cryptsetup luksFormat --type luks2 --verify-passphrase "$data" </dev/tty
+ cryptsetup open --type luks2 "$data" live-data </dev/tty
+ mapped=1
+ mkfs.ext4 -L live-data /dev/mapper/live-data
+ printf 'ROOT_PARTUUID=%s\nDATA_PARTUUID=%s\nLUKS_UUID=%s\n' "$rootid" "$(blkid -s PARTUUID -o value "$data")" "$(cryptsetup luksUUID "$data")" >/run/live/setup-efi/live-data.conf.new
+ sync
+ mv /run/live/setup-efi/live-data.conf.new /run/live/setup-efi/live-data.conf
+ sync
+ rm /run/live/setup-efi/live-data.pending
+ sync
+ # Hand the verified mapping to activate; cleanup closes it on earlier failures.
+ mapped=0
+}
+activate() {
+ # Uses the existing strict same-USB/PARTUUID/LUKS UUID verification.
+ /usr/bin/live-data unlock
+ exec 9>/run/live/data.lock
+ flock -x 9
+ [[ ! -e /run/live/persistence-active ]] || fail 'persistence already activated'
+ for p in /data/system /data/system/iwd /data/system/alsa; do
+  safe_dir "$p"
+  [[ $(stat -c %u "$p") == 0 ]] || fail "non-root owner: $p"
+  chmod 0700 "$p"
+ done
+ safe_dir /data/tech
+ [[ $(stat -c %u /data/tech) == 0 || $(stat -c %u /data/tech) == 1000 ]] || fail 'unexpected home parent owner'
+ if [[ ! -e /data/tech/home && ! -L /data/tech/home ]]; then
+  # A staging directory makes interrupted initial copies visible and retry-safe.
+  [[ ! -e /data/tech/.home-new && ! -L /data/tech/.home-new ]] || fail 'incomplete home initialization; inspect manually'
+  mkdir -m 0700 /data/tech/.home-new
+  cp -a /home/tech/. /data/tech/.home-new/
+  chown -R 1000:1000 /data/tech/.home-new
+  mv /data/tech/.home-new /data/tech/home
+ fi
+ safe_dir /data/tech/home
+ [[ $(stat -c %u /data/tech/home) == 1000 ]] || fail 'persistent home must belong to tech'
+ safe_dir /data/tech/Documents
+ chown 1000:1000 /data/tech /data/tech/Documents
+ chmod 0700 /data/tech /data/tech/home
+ # Preserve the earlier documents location without hiding an existing home folder.
+ if [[ ! -e /data/tech/home/Documents && ! -L /data/tech/home/Documents ]]; then
+  ln -s /data/tech/Documents /data/tech/home/Documents
+ fi
+ # Marker blocks interactive Lock Data even if a later bind operation fails.
+ : >/run/live/persistence-active
+ for pair in '/data/tech/home /home/tech' '/data/system/iwd /var/lib/iwd' '/data/system/alsa /var/lib/alsa'; do
+  read -r src dst <<<"$pair"
+  safe_dir "$dst"
+  ! mountpoint -q "$dst" || fail "mountpoint already occupied: $dst"
+  mount --bind "$src" "$dst"
+ done
+ echo 'Persistent home, Wi-Fi profiles and ALSA state are ready.'
+}
+stop() {
+ rm -f /run/live/session-ready
+ [[ -e /run/live/persistence-active ]] || exit 0
+ exec 9>/run/live/data.lock
+ flock -x 9
+ # PAM sessions can outlive the compositor service cgroup. End them before unmount.
+ loginctl terminate-user tech || true
+ for ((i=0; i<20; i++)); do
+  pgrep -u 1000 >/dev/null || break
+  sleep 1
+ done
+ ! pgrep -u 1000 >/dev/null || fail 'tech processes remain; refusing to unmount home'
+ for dst in /var/lib/alsa /var/lib/iwd /home/tech; do
+  if mountpoint -q "$dst"; then
+   [[ $(findmnt -nro MAJ:MIN --mountpoint "$dst") == "$(findmnt -nro MAJ:MIN --mountpoint /data)" ]] || fail "unexpected mount at $dst"
+   umount "$dst" || fail "busy: $dst; leaving encrypted data open"
+  fi
+ done
+ rm /run/live/persistence-active
+}
+case $1 in
+ probe) probe;;
+ create) create;;
+ activate) activate;;
+ stop) stop;;
+ *) fail 'unsupported operation';;
+esac

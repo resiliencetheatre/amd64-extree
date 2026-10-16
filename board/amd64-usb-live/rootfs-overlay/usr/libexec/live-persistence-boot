@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV CDPATH
+umask 077
+helper=/usr/libexec/live-persistence
+mkdir -p /run/live
+rm -f /run/live/session-ready
+# The explicit recovery entry never opens or creates encrypted storage.
+case " $(cat /proc/cmdline) " in
+ *' live.persistence=off '*) echo 'Ephemeral recovery: no persistent storage opened.'; touch /run/live/session-ready; exit 0;;
+esac
+chvt 1
+cleanup_attempt() {
+ "$helper" stop && /usr/bin/live-data lock
+}
+# Probe only reads the EFI partition. Existing manifests trigger the passphrase
+# prompt immediately; an absent manifest leads to the creation choice.
+if "$helper" probe; then
+ if "$helper" activate; then touch /run/live/session-ready; exit 0; fi
+ echo 'Unlock/activation failed. No filesystem has been reformatted.'
+fi
+while true; do
+ echo
+ echo 'Persistent live USB setup'
+ echo '  u: unlock existing storage (retry passphrase)'
+ echo '  c: create storage in unused space on this boot USB'
+ echo '  e: explicitly boot with temporary settings/home'
+ echo '  p: power off'
+ printf 'Choice [u/c/e/p]: '
+ if ! read -r choice; then sleep 1; continue; fi
+ case $choice in
+  u|c)
+   if ! cleanup_attempt; then echo 'Cleanup failed; reboot into ephemeral recovery to inspect.'; continue; fi
+   if [[ $choice == c ]] && ! "$helper" create; then
+    echo 'Creation did not finish. Interrupted provisioning requires manual inspection.'
+    continue
+   fi
+   if "$helper" activate; then touch /run/live/session-ready; exit 0; fi
+   echo 'Activation failed. Retry or explicitly choose ephemeral mode.'
+   ;;
+  e)
+   if cleanup_attempt; then
+    echo 'Ephemeral session selected: settings and home will be lost at shutdown.'
+    touch /run/live/session-ready
+    exit 0
+   fi
+   echo 'Could not safely close storage. Reboot with the ephemeral recovery entry.'
+   ;;
+  p) systemctl --no-block poweroff; exit 1;;
+  *) echo 'Enter u, c, e or p.';;
+ esac
+done

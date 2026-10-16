@@ -1,0 +1,2 @@
+# https://raw.githubusercontent.com/NetBSD/pkgsrc/trunk/security/libfido2/distinfo
+sha512  42da7eac4baa6e0c193a2fc2b42d86cbab45c4c7a79220b523c0b4ddc547bbd12b86b3fbbadd7a961e930417ca3026873fb7f0e72903976ca5dc70b445910b79  libfido2-1.17.0.tar.gz

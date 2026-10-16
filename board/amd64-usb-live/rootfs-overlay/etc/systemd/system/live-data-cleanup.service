@@ -1,7 +1,7 @@
 [Unit]
 Description=Close optional encrypted live data on shutdown
-After=local-fs.target
-Before=live-weston.service
+After=local-fs.target data.mount
+Before=live-persistence.service live-weston.service
 
 [Service]
 Type=oneshot

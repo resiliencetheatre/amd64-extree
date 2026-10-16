@@ -1,1 +1,2 @@
-# All software is supplied by the pinned upstream packages.
+source "$BR2_EXTERNAL_AMD64_EXTREE_PATH/package/libcbor/Config.in"
+source "$BR2_EXTERNAL_AMD64_EXTREE_PATH/package/libfido2/Config.in"

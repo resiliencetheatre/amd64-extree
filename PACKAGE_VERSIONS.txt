@@ -1,6 +1,8 @@
 # Selected packages resolved by make show-info; not evidence of a build.
-# Buildroot acbcc911b71f93bb7ea9400aa19713f3464c8e69; temporary SSH debug configuration
+# Buildroot acbcc911b71f93bb7ea9400aa19713f3464c8e69; storage and token tooling
 acl	2.4.0
+alsa-lib	1.2.16.1
+alsa-utils	1.2.16
 at-spi2-core	2.58.2
 attr	2.6.0
 bash	5.2.37
@@ -9,15 +11,19 @@ bubblewrap	0.13.0
 busybox	1.38.0
 ca-certificates	20260223
 cairo	1.18.4
+ccid	1.5.2
 clang	23.1.3
 cryptsetup	2.8.8
 dbus	1.16.2
 dejavu	2.37
+dosfstools	4.2
 dropbear	2026.94
 e2fsprogs	1.47.4
 elfutils	0.195
+ell	0.83
 enchant	2.3.3
 ethtool	7.1
+exfatprogs	1.2.9
 expat	2.9.0
 findutils	4.10.0
 fontconfig	2.17.1
@@ -28,6 +34,7 @@ glib-networking	2.76.0
 glibc	2.44-57-g34106fee698c83eb0af71d4d0381e66b399be746
 gmp	6.3.0
 gnutls	3.8.13
+gptfdisk	1.0.10
 grep	3.12
 grub2	2.14
 harfbuzz	14.6.0
@@ -53,7 +60,7 @@ host-gcc-final	15.3.0
 host-gcc-initial	15.3.0
 host-gdk-pixbuf	2.42.12
 host-genimage	20
-host-gettext	(virtual)
+host-gettext	(unversioned)
 host-gettext-tiny	0.3.3
 host-gmp	6.3.0
 host-gperf	3.3
@@ -69,7 +76,6 @@ host-libdrm	2.4.134
 host-libffi	3.8.0
 host-libfribidi	1.0.16
 host-libglib2	2.88.3
-libglvnd	1.7.0
 host-libgtk3	3.24.51
 host-libjpeg	10
 host-libopenssl	3.6.5
@@ -90,17 +96,17 @@ host-lz4	1.10.0
 host-lzip	1.26
 host-lzo	2.10
 host-m4	1.4.21
-host-makedevs	(unversioned)
+host-makedevs	
 host-mesa3d	26.1.8
 host-meson	1.12.1
-host-mkpasswd	(unversioned)
+host-mkpasswd	
 host-mpc	1.4.1
 host-mpfr	4.2.2
 host-mtools	4.0.49
 host-nasm	2.16.03
 host-ncurses	6.6-20251231
 host-ninja	1.13.2
-host-openssl	(virtual)
+host-openssl	(unversioned)
 host-pango	1.58.0
 host-patchelf	0.13
 host-pcre2	10.49
@@ -122,8 +128,8 @@ host-python-wheel	0.48.0
 host-python3	3.14.8
 host-ruby	4.0.6
 host-rust-bin	1.98.1
-host-rustc	(virtual)
-host-skeleton	(unversioned)
+host-rustc	(unversioned)
+host-skeleton	
 host-spirv-headers	1.4.357.0
 host-spirv-llvm-translator	23.1.1
 host-spirv-tools	1.4.357.0
@@ -144,12 +150,14 @@ host-xorgproto	2025.1
 host-xutil_util-macros	1.20.2
 host-xz	5.8.4
 host-zic	2026b
-host-zlib	(virtual)
+host-zlib	(unversioned)
 host-zstd	1.5.7
+htop	3.5.1
 hwdata	0.412
 icu	78.2
 iproute2	7.1.0
-jpeg	(virtual)
+iwd	3.12
+jpeg	(unversioned)
 jpeg-turbo	3.2.0
 json-c	0.18
 kbd	2.10.0
@@ -158,24 +166,28 @@ less	710
 libaio	0.3.113
 libargon2	20190702
 libcap	2.78
+libcbor	0.14.0
 libclc	23.1.3
 libcurl	8.22.0
 libdisplay-info	0.4.0
 libdrm	2.4.134
-libegl	(virtual)
+libegl	(unversioned)
 libepoxy	1.5.10
 libevdev	1.13.5
+libevent	2.1.13
 libffi	3.8.0
+libfido2	1.17.0
 libfribidi	1.0.16
-libgbm	(virtual)
+libgbm	(unversioned)
 libgcrypt	1.12.3
-libgles	(virtual)
+libgles	(unversioned)
 libglib2	2.88.3
 libglvnd	1.7.0
 libgpg-error	1.61
 libgtk3	3.24.51
 libinput	1.31.3
-libopencl	(virtual)
+libopencl	(unversioned)
+libopenssl	3.6.5
 libpng	1.6.59
 libpsl	0.23.3
 libpthread-stubs	0.5
@@ -183,7 +195,7 @@ libseccomp	2.6.1
 libsecret	0.20.5
 libsoup3	3.7.3
 libtasn1	4.21.0
-libudev	(virtual)
+libudev	(unversioned)
 libunistring	1.4.2
 libusb	1.0.30
 libxcrypt	4.5.2
@@ -203,29 +215,35 @@ nano	9.2
 ncurses	6.6-20251231
 nettle	3.10.2
 nghttp2	1.68.1
+ntfs-3g	2026.7.7
+opensc	0.27.1
+openssl	(unversioned)
 p11-kit	0.26.2
 pango	1.58.0
 pciutils	3.15.0
 pcre2	10.49
+pcsc-lite	2.5.2
 pixman	0.46.4
 popt	1.19
+procps-ng	4.0.6
 readline	8.3
-rootfs-common	(virtual)
-rootfs-squashfs	(virtual)
+rootfs-common	(unversioned)
+rootfs-squashfs	(unversioned)
 seatd	0.9.1
-skeleton	(virtual)
-skeleton-init-common	(unversioned)
-skeleton-init-systemd	(unversioned)
+skeleton	(unversioned)
+skeleton-init-common	
+skeleton-init-systemd	
 spirv-headers	1.4.357.0
 spirv-llvm-translator	23.1.1
 spirv-tools	1.4.357.0
 sqlite	3.54.0
 sudo	1.9.17p2
 systemd	258.7
-toolchain	(virtual)
-toolchain-buildroot	(virtual)
+tmux	3.6b
+toolchain	(unversioned)
+toolchain-buildroot	(unversioned)
 tzdata	2026e
-udev	(virtual)
+udev	(unversioned)
 usbutils	019
 util-linux	2.41.5
 util-linux-libs	2.41.5
@@ -234,8 +252,9 @@ wayland-protocols	1.48
 webkitgtk	2.52.4
 webp	1.6.0
 weston	16.0.0
+wireless-regdb	2026.09.03
 woff2	1.0.2
 xdg-dbus-proxy	0.1.8
 xkeyboard-config	2.38
 xutil_util-macros	1.20.2
-zlib	(virtual)
+zlib	(unversioned)

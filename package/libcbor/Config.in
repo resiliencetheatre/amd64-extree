@@ -1,0 +1,7 @@
+config BR2_PACKAGE_LIBCBOR
+	bool "libcbor"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  CBOR encoding and decoding library.
+
+	  https://github.com/PJK/libcbor

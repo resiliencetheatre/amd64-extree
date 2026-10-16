@@ -175,3 +175,81 @@ I2C and I2C_HID_ACPI enabled. Only host Kconfig utilities were compiled; no
 kernel/image build was run. The PS/2 AUX-disabled message alone does not prove
 a PS/2 touchpad; no global i8042 workaround was added. Dell black-screen
 investigation remains unresolved. baseline-1 is unchanged.
+
+## Weston terminal line drawing (2026-10-16)
+
+User photograph shows MC borders rendered as literal q/x/l/k characters.
+Inspected Weston 16 terminal.c: TERM defaults to xterm; ESC ( 0 changes g0
+but does not refresh the separate active cs pointer. This is consistent with
+literal ACS characters. The pinned ncurses lib_setup.c honors
+NCURSES_NO_UTF8_ACS; wide-character ncurses is selected. Added that override
+to live-session and a C.UTF-8 LANG fallback, scoped to the desktop rather than
+SSH/consoles. Documented a live MC test with explicit UTF-8 locale. No font,
+package, or image rebuild performed. Target visual confirmation remains pending.
+
+## ALSA and Intel Wi-Fi configuration (2026-10-16)
+
+Added ALSA utils (aplay/arecord, mixer/control and speaker-test), common HDA
+codecs/HDMI/USB audio, iwlwifi DVM/MVM and the packaged Intel firmware families
+except legacy 3945/4965. Added wireless-regdb, iwd and readline for iwctl.
+Enabled iwd and alsa-restore services; configured iwd for authentication only,
+networkd wireless DHCP/IPv6 RA and wired-preferred route metrics. Existing udev
+sound uaccess rules provide active local session access. No sound server or
+wpa_supplicant selected. Updated active Buildroot config and package manifest.
+
+Inspected pinned package Kconfig/makefiles and kernel Kconfig. Configuration
+regeneration/minimal round trip and shell/overlay checks passed. All explicit
+kernel options survive olddefconfig in a separate config. This exposed older
+kernel config issues: supplied CONFIG_MD explicitly for dm-crypt, corrected
+USB_NET_CDC_ETHER to USB_NET_CDCETHER, and removed obsolete RANDOM_TRUST_CPU.
+Only host Kconfig utilities compiled; no target or image build performed.
+
+Pinned iwd source download for additional service inspection failed due to host
+DNS resolution. Runtime service start, sound output/capture, radio association,
+DHCP, DNS, reconnect and firmware/API compatibility need the user's manual
+build/hardware test. SOF/SoundWire and Bluetooth audio are not implemented.
+Persistence is documented as a proposal only; no live home mount or credential
+persistence was silently enabled. User confirms the preceding MC border override
+fixes the rendering issue. Baseline-1 remains the historical working snapshot;
+subsequent Dell display failure is unresolved.
+
+## First-boot LUKS persistence implementation (2026-10-16)
+
+User authorized pre-desktop USB data creation and passphrase unlock on later
+boots. Added root-only setup/provisioning helpers, a tty1 oneshot login gate,
+GL/Pixman ephemeral recovery entries and dependent-service drop-ins. Home,
+iwd profiles and ALSA state bind to encrypted storage before consumers start.
+The default boot requests persistence; explicit ephemeral fallback is available.
+This supersedes the original optional-data/no-boot-prompt requirement by user
+instruction. No changes were made to the historical baseline-1 tag.
+
+Creation validates the actual mounted SquashFS device and USB transport, GPT,
+partition layout, holders/mounts/swap and capacity. It requires typed device
+confirmation, preserves existing partition metadata, saves GPT backup and a
+pending marker before changes, creates LUKS2/ext4, and publishes the existing
+UUID manifest format. No automatic formatting retry/adoption is implemented.
+Shutdown orders consumers before persistence cleanup and mapping closure;
+interactive Lock Data refuses while persistent home/state bindings are active.
+
+Added target sgdisk, partx, wipefs and procps-ng to the defconfig and active
+configuration; post-build requires the provisioning tools. Regeneration and
+minimal-defconfig round trip, required/forbidden options, merged overlay and
+shell syntax checks pass. Read-only tests/test_persistence.py passes guard
+fixtures for valid geometry, extra partitions, holders, unexpected EFI mounts,
+active swap, insufficient space, malformed geometry and symlink traversal.
+No real block device was opened or modified by those tests.
+
+Host systemd-analyze verification of a temporary target-unit tree was blocked
+by the sandbox: SO_PASSCRED failed: Operation not permitted. Matching systemd
+258.7 verification and actual boot/shutdown ordering remain untested. Test unit
+copies used dummy executable paths and new-package service stubs, not an image.
+No target packages, kernel or image built; no QEMU, loop formatting, physical
+USB provisioning, passphrase test, power-loss test or reboot persistence test
+was performed. Follow PERSISTENCE.md acceptance checklist on disposable media.
+
+
+Storage/token additions: configuration regeneration and round trip checked;
+custom package recipes inspected against upstream CMake files and archive hashes
+recorded from packaging sources. No target build, USB write, filesystem operation,
+or token enrollment was run. Downloads and license hashes have not been verified
+locally (sandbox DNS unavailable). systemd FIDO2 support remains disabled; see README.

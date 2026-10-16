@@ -87,7 +87,8 @@ Intel i915, AMD amdgpu, QEMU virtio/Bochs/QXL, USB storage/UAS, common Ethernet
 and USB Ethernet drivers are selected. i915/amdgpu and Realtek 8169 firmware
 are deliberately included. Intel/AMD GPU drivers are modules so firmware is
 available from the real root when udev loads them. The Dell Latitude 7280 with Intel HD 620 has been tested by the user;
-AMD and QEMU coverage remains unverified. NVIDIA, very new Intel Xe hardware and Wi-Fi are outside the first configuration. Pixman does
+AMD and QEMU coverage remains unverified. NVIDIA, very new Intel Xe hardware is outside the tested configuration. Intel Wi-Fi support is
+now configured as described below; radio hardware validation remains pending. Pixman does
 not fix missing KMS support. USB input and common laptop input are included.
 
 ## Desktop
@@ -106,12 +107,14 @@ entry/navigation, not a full Firefox replacement. The normal launcher opens
 an offline welcome page. GTK uses Wayland; Xorg/XWayland are absent. Browser
 sandboxing remains enabled. No package manager or target compiler is added.
 
-Home, browser data, `/etc` and `/var` are volatile through the root overlay;
+In ephemeral mode, home, browser data, `/etc` and `/var` are volatile.
+In persistent mode, home, iwd profiles and ALSA state are backed by LUKS;
+remaining root changes are volatile through the root overlay;
 `/run` and `/tmp` are tmpfs, and journal storage is volatile. machine-id starts
 empty and is generated per boot. Ethernet uses networkd DHCP, resolved's
 stub resolver and timesyncd. Network availability does not gate the desktop.
-The temporary debug build includes SSH (see below); Wi-Fi management and
-automatic internal-disk mounting remain disabled.
+The temporary debug build includes SSH (see below); Wi-Fi uses iwd/networkd.
+Automatic internal-disk mounting remains disabled.
 GPT autodiscovery and hibernation resume generators are disabled.
 
 ## Provision a USB (destructive, manual)
@@ -123,7 +126,7 @@ Use an explicit whole-device path, never a partition. Example placeholders:
 
 ```sh
 sudo amd64-extree/scripts/provision-usb.sh output-amd64/images/usb-live.img /dev/disk/by-id/YOUR_USB --data
-# Omit --data for a boot-only USB.
+# Omit --data to offer data creation on the first USB boot.
 ```
 
 The script displays the target and requires `ERASE /dev/<resolved-device>` on
@@ -156,6 +159,9 @@ away from the USB. It contains keyslots and permits restoration of old keys.
 
 ## Unlock, lock and persistence
 
+The default boot prepares persistence before login; see [PERSISTENCE.md](PERSISTENCE.md).
+The following panel workflow is for an **ephemeral session** with optional data.
+
 Select Unlock Data and enter the passphrase in its terminal. The helper
 checks partition 3 belongs to the same disk as the boot system partition,
 checks the EFI manifest's system/data PARTUUIDs and LUKS UUID, then opens only
@@ -163,7 +169,8 @@ checks the EFI manifest's system/data PARTUUIDs and LUKS UUID, then opens only
 rejects foreign mappings/mounts, and handles repeated unlocks. Missing data
 and incorrect passphrases leave the desktop usable. Documents belong in
 `/data/tech/Documents`, created with ownership 1000:1000 during provisioning.
-Nothing automatically persists the home directory or system overlay.
+This manual panel unlock does not replace the active home. A persistent home
+is mounted only during the pre-login boot flow. The full system overlay is never persisted.
 
 Select Lock Data to unmount and close the mapping. If busy, close files and
 browser windows and leave `/data` in all terminals; retry. There is no force
@@ -335,3 +342,160 @@ addition is not yet tested. Rebuild with the `linux-reconfigure` and image
 commands in the Dell touchpad section, then inspect `/proc/bus/input/devices`
 and the I2C/HID kernel journal. If input is still absent, collect ACPI modaliases
 and deferred-probe messages before adding device-specific drivers or boot flags.
+
+### Midnight Commander borders show q/x instead of lines
+
+Weston terminal defaults to TERM=xterm. Its legacy character-set designation
+handling can leave the active character set unchanged, displaying the ACS
+line-drawing letters literally. The Weston session sets
+`NCURSES_NO_UTF8_ACS=1` so ncurses uses Unicode borders in a UTF-8 locale.
+The selected ncurses supports wide characters; changing the font or TERM is
+not required for this workaround. To test immediately in a Weston terminal,
+exit MC and run:
+
+```sh
+LC_ALL=C.UTF-8 NCURSES_NO_UTF8_ACS=1 mc
+```
+
+The session change applies after rebuilding the image and starting a fresh
+session. Visual confirmation on target is still required.
+
+## ALSA audio and Intel Wi-Fi
+
+The configuration now includes ALSA `aplay`, `arecord` (the recording tool),
+`alsamixer`, `amixer`, `alsactl` and `speaker-test`. No PulseAudio or PipeWire
+is selected. HDA Intel/AMD controllers, Realtek/Analog Devices/Sigmatel/VIA/
+Cirrus/Conexant codecs, HDMI and USB audio are included. Normal desktop audio
+access follows systemd-logind's sound-device ACLs; no broad permission changes
+or permanent audio-group membership are needed. DSP-only/SOF/SoundWire laptops
+are not covered by this first generic HDA configuration; adding those needs
+matching firmware, topology and UCM data for the actual hardware. Bluetooth
+audio is not included.
+
+The Wi-Fi stack is iwlwifi with both iwldvm/iwlmvm, Intel firmware, the wireless
+regulatory database, iwd and iwctl. Firmware selections cover the packaged
+100/1000/2000, 316x, 6000G2, 726x, 8000C/8265, 9xxx, AX/6E and BE/7 families.
+The driver is limited to hardware supported by Linux 6.12.47; including newer
+firmware alone does not add new device support. Legacy 3945/4965 iwlegacy
+adapters and non-Intel radios are outside this selection. Dell Intel 8265 and
+Panasonic 9560/CNVi firmware families are included; hardware tests are pending.
+
+`/etc/iwd/main.conf` explicitly disables iwd's network configuration. iwd owns
+association/authentication, networkd owns DHCP/routes and resolved owns DNS.
+The wireless .network file sorts before the broad Ethernet match. DHCPv4 and
+IPv6 RA route metrics prefer wired (100) over wireless (600). Both links are
+optional for online status and desktop startup. No wpa_supplicant or
+NetworkManager is selected. Wi-Fi credentials are not embedded in the image.
+
+The active in-tree Buildroot configuration has been updated while preserving
+other settings. From `buildroot/`, build manually:
+
+```sh
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 linux-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2
+```
+
+For a fresh checkout use the normal defconfig commands above. After boot, run
+these in the Weston terminal as tech (choose a card/device from the lists):
+
+```sh
+aplay -l
+arecord -l
+alsamixer
+speaker-test -D plughw:0,0 -c 2 -t wav -l 1
+arecord -D plughw:0,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/test.wav
+aplay /tmp/test.wav
+```
+
+Use F6 in alsamixer to choose the card, M to toggle mute, and F4 for capture.
+Recording channel/rate support varies; adjust the example to your device.
+`alsa-restore.service` initializes/restores mixer state and saves it at shutdown,
+with state persisted in encrypted mode and volatile in ephemeral mode. No forced volume setting is
+applied. Direct ALSA clients may contend for a hardware device; this setup does
+not promise an audio-server-style routing/mixing interface.
+
+Connect Wi-Fi from the existing root SSH/console session using interactive
+`iwctl` (replace wlan0 with the name shown by `device list`):
+
+```text
+iwctl
+[iwd] device list
+[iwd] station wlan0 scan
+[iwd] station wlan0 get-networks
+[iwd] station wlan0 connect "Your SSID"
+[iwd] exit
+```
+
+Enter the passphrase at the prompt, not in command-line options. Then check:
+
+```sh
+networkctl status wlan0
+resolvectl status wlan0
+journalctl -b -u iwd -u systemd-networkd --no-pager
+journalctl -b -k --no-pager | grep -Ei 'iwlwifi|firmware|rfkill|snd|hda'
+```
+
+If no radio appears, inspect firmware messages and the laptop's wireless switch.
+Profiles in `/var/lib/iwd` persist after encrypted boot, but disappear on reboot
+in ephemeral mode. Do not share their
+contents in diagnostics: they contain network credentials.
+
+## First-boot persistence
+
+The default boot now offers encrypted storage setup or unlock before the
+user session. Home, iwd profiles and ALSA state use the USB LUKS partition.
+Explicit ephemeral recovery entries remain available. See
+[PERSISTENCE.md](PERSISTENCE.md) for setup, layout, shutdown, failure recovery
+and the mandatory disposable-media acceptance tests. This implementation has
+not yet been boot-tested; baseline-1 remains the historical tested snapshot.
+
+## Storage tools and future security tokens
+
+The image includes ext2/3/4 tools (including resize2fs, debugfs and e2image),
+FAT creation/checking/label tools, exfatprogs, NTFS-3G/ntfsprogs, and util-linux
+mount, loop, partition-refresh, signature inspection and filesystem-check tools.
+These are manual tools: no internal disk automounting or automatic formatting is
+added. NTFS repair tools are not a replacement for Windows chkdsk.
+
+LUKS2/Argon2 and systemd cryptsetup plugins remain enabled. PC/SC lite, USB CCID,
+OpenSC and p11-kit provide smartcard/PKCS#11 support. libfido2 1.17.0 and libcbor
+0.14.0 are pinned external packages; fido2-token and the other FIDO utilities
+support USB HID authenticators (HIDRAW enabled). NFC is not enabled.
+No token is enrolled and the persistence unlock remains keyboard/passphrase based.
+
+**Limitation:** the pinned Buildroot systemd recipe explicitly disables libfido2.
+Installing libfido2 does not enable systemd-cryptenroll FIDO2 enrollment. Enabling
+it needs a separate bootstrap integration because libfido2 depends on systemd's
+libudev, and systemd would then depend on libfido2. This is deferred; do not rely
+on token boot unlocking yet. Smartcard and authenticator hardware are untested.
+
+### Existing build: missing partx or wipefs
+
+Buildroot does not automatically reconfigure an already-built package when its
+options change. The failing build had partx/wipefs selected in .config but disabled
+in the old util-linux configure invocation. From the existing `buildroot/` directory:
+
+```sh
+make BR2_EXTERNAL="$PWD/../amd64-extree" olddefconfig
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 util-linux-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 e2fsprogs-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 libopenssl-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 systemd-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2 linux-reconfigure
+make BR2_EXTERNAL="$PWD/../amd64-extree" BR2_JLEVEL=2
+```
+
+The active in-tree .config has been updated while preserving existing selections.
+Fresh builds use the normal defconfig workflow. For a separate output directory,
+pass the same `O=` to every command. No full clean is required for these additions.
+
+Custom source hash provenance: [libfido2, NetBSD pkgsrc](https://raw.githubusercontent.com/NetBSD/pkgsrc/trunk/security/libfido2/distinfo)
+and [libcbor, Homebrew](https://raw.githubusercontent.com/Homebrew/homebrew-core/master/Formula/lib/libcbor.rb).
+Archive hashes are enforced; license file hashes still need verification from the
+actual downloaded archives before running legal-info.
+
+
+The libfido2 recipe sets a neutral CMake build type because upstream appends
+`-D_FORTIFY_SOURCE=2` to Release flags while Buildroot already supplies
+`-D_FORTIFY_SOURCE=1`; with upstream `-Werror` those definitions fail compilation.
+Buildroot's target flags retain its configured fortification level.

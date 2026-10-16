@@ -1,0 +1,24 @@
+[Unit]
+Description=Prepare encrypted persistent home and settings before login
+Requires=live-data-cleanup.service
+Wants=systemd-logind.service
+After=home-tech.mount var-lib-iwd.mount var-lib-alsa.mount data.mount local-fs.target systemd-udev-trigger.service systemd-logind.service live-data-cleanup.service
+Before=systemd-user-sessions.service live-weston.service iwd.service alsa-restore.service alsa-state.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/live-persistence-boot
+ExecStop=/usr/libexec/live-persistence stop
+TimeoutStartSec=infinity
+TimeoutStopSec=90
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

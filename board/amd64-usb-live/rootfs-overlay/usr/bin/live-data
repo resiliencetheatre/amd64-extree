@@ -8,6 +8,9 @@ fail() { echo "Data: $*" >&2; exit 1; }
 [[ -d /run/live && ! -L /run/live && ! -L /data && -d /data ]] || fail 'unsafe directories'
 exec 9>/run/live/data.lock
 flock -x 9
+if [[ $1 == lock && -e /run/live/persistence-active ]]; then
+ fail 'persistent home/settings are active; shut down to close encrypted storage safely'
+fi
 if [[ $1 == lock && ! -e /dev/mapper/live-data ]] && ! mountpoint -q /data; then exit 0; fi
 rootdev=$(cat /run/live/root-device)
 [[ -b $rootdev ]] || fail 'boot device missing'
