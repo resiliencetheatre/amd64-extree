@@ -117,45 +117,32 @@ The temporary debug build includes SSH (see below); Wi-Fi uses iwd/networkd.
 Automatic internal-disk mounting remains disabled.
 GPT autodiscovery and hibernation resume generators are disabled.
 
-## Provision a USB (destructive, manual)
+## Write or reflash a USB
 
-Host tools: bash, coreutils, util-linux (lsblk/findmnt/flock/blkid/blockdev,
-swapon), gdisk (`sgdisk`), parted (`partprobe`), udev (`udevadm`), cryptsetup,
-and e2fsprogs. Check model, serial and partitions yourself before confirming.
-Use an explicit whole-device path, never a partition. Example placeholders:
-
-```sh
-sudo amd64-extree/scripts/provision-usb.sh output-amd64/images/usb-live.img /dev/disk/by-id/YOUR_USB --data
-# Omit --data to offer data creation on the first USB boot.
-```
-
-The script displays the target and requires `ERASE /dev/<resolved-device>` on
-`/dev/tty`. It rejects mounted devices, holders, active swap, the running
-root/boot disks, physical non-USB/non-removable devices, partitions, disks
-with non-512-byte sectors, and insufficient space. It writes the image,
-repairs the backup GPT, randomizes disk/partition GUIDs, updates GRUB and,
-optionally, creates partition 3 in remaining space. LUKS2 and ext4 are newly
-created; cryptsetup prompts directly on the terminal. No shared LUKS header,
-keyfile or passphrase is shipped. Failures stop; they do not cause retries
-that reformat anything. Inspect partial media manually before reprovisioning.
-The EFI manifest contains only UUIDs and is parsed as data at runtime.
-
-Disposable loop workflow (these commands have NOT been run here):
+Run these commands from the Buildroot checkout directory, after verifying the
+USB device name, model and serial with `lsblk`, and unmounting any mounted USB
+partitions. `/dev/sdc` is only an example; replace it with the verified whole-
+device path. Never use a partition as the image destination.
 
 ```sh
-truncate -s 12G /tmp/amd64-test-usb.img
-loop=$(sudo losetup --find --show --partscan /tmp/amd64-test-usb.img)
-sudo amd64-extree/scripts/provision-usb.sh output-amd64/images/usb-live.img "$loop" --data
-sudo sgdisk -v "$loop"
-sudo lsblk -f "$loop"
-sudo losetup -d "$loop"
+sudo dd if=/dev/zero of=/dev/sdc3 bs=1M count=16 conv=fsync status=progress
+sudo dd if=output/images/usb-live.img of=/dev/sdc status=progress
+sync
 ```
 
-Do not reuse a loop device containing valuable data. Provision a second test
-file to verify all disk, partition and LUKS UUIDs differ.
-An optional header backup is `sudo cryptsetup luksHeaderBackup DATA_PARTITION
---header-backup-file /secure/offline/location/header.img`; store it securely
-away from the USB. It contains keyslots and permits restoration of old keys.
+The first command clears 16 MiB at the start of the existing third partition;
+it does not erase the rest of the USB. The image write replaces the image-sized
+region and its partition table, but leaves sectors beyond the image untouched.
+On first boot, live setup can create an encrypted data partition in unused
+space. If setup reports signatures in the proposed partition extent, stop and
+inspect them rather than formatting or wiping the whole device automatically.
+Back up needed files and the LUKS header before re-imaging: clearing the header
+makes the encrypted contents inaccessible unless the header was backed up.
+
+For an optional LUKS header backup before re-imaging, use
+`sudo cryptsetup luksHeaderBackup /dev/sdc3 --header-backup-file /secure/offline/location/header.img`.
+Store it securely away from the USB; it contains keyslot metadata and can allow
+restoration of old keys.
 
 ## Unlock, lock and persistence
 
@@ -229,9 +216,9 @@ make -C buildroot O="$PWD/buildroot/output" \
 
 This reuses completed package builds and reruns image assembly. No clean,
 WebKit rebuild or kernel rebuild is needed for this layout correction. Then
-write the regenerated usb-live.img to disposable test media again. Re-running
-the provisioning script erases existing encrypted data; back it up first if
-needed. A successful archive check is not a claim that hardware boot passes.
+write the regenerated usb-live.img to the USB again using the commands above.
+Back up encrypted data and its LUKS header first. A successful archive check
+is not a claim that hardware boot passes.
 
 ## Temporary SSH debugging (root / root)
 
@@ -499,3 +486,49 @@ The libfido2 recipe sets a neutral CMake build type because upstream appends
 `-D_FORTIFY_SOURCE=2` to Release flags while Buildroot already supplies
 `-D_FORTIFY_SOURCE=1`; with upstream `-Werror` those definitions fail compilation.
 Buildroot's target flags retain its configured fortification level.
+
+
+## Keyboard layout
+
+Finnish is the default for both the Linux virtual console (including the
+persistence passphrase prompt) and Weston graphical sessions. Weston uses the
+`fi` XKB layout with a standard 105-key PC model. To change it, update
+`BR2_PACKAGE_SYSTEMD_VCONSOLE_DEFAULT_KEYMAP` in the defconfig and
+`keymap_layout` in the overlaid `weston.ini` to the same XKB/keymap code, then
+regenerate the configuration and rebuild. Weston 16 documents these keyboard
+keys in its `weston.ini` manual.
+
+The graphical session uses `en_US.UTF-8`, which is generated in the image,
+while the keyboard layout remains Finnish. This avoids Weston/xkbcommon's
+missing Compose-table warning for the ungenerated `C.UTF-8` locale. Locale
+controls character handling and Compose behavior; the XKB layout controls the
+physical key mapping.
+
+Weston 16.0.0's terminal client also included xkbcommon's trailing NUL byte
+after non-ASCII key input, which appeared as `^@` during typing. The external
+tree carries a version-specific patch that omits that byte. In an existing
+Buildroot output tree, force Weston to re-extract and apply the patch before
+rebuilding the image:
+
+```sh
+make -C buildroot O="$PWD/buildroot/output" \
+  BR2_EXTERNAL="$PWD/amd64-extree" weston-dirclean
+make -C buildroot O="$PWD/buildroot/output" \
+  BR2_EXTERNAL="$PWD/amd64-extree"
+```
+
+Run these from the directory containing `buildroot/` and `amd64-extree/`. A
+fresh output tree applies the patch during the normal build. I have not built
+or booted this fix.
+
+
+The boot-time persistence flow clears tty1 before its storage confirmation and
+LUKS passphrase prompts, so kernel and systemd startup messages do not sit behind
+the sensitive entry prompt. The in-session Unlock Data action does not clear the
+terminal running Weston.
+
+
+The documented reflash commands clear only the first 16 MiB of the existing
+third partition before writing the image. They do not wipe the rest of the USB;
+data beyond the image remains on the device and first-boot setup may refuse to
+reuse space containing signatures it does not recognize.

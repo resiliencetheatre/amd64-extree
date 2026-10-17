@@ -5,6 +5,11 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 unset BASH_ENV ENV CDPATH
 umask 077
 fail() { echo "Persistence: $*" >&2; exit 1; }
+clear_prompt_screen() {
+ # Keep GUI unlocks and diagnostics on other terminals untouched.
+ [[ -t 0 && $(tty 2>/dev/null || true) == /dev/tty1 ]] || return 0
+ printf '\033[H\033[2J' >/dev/tty1
+}
 [[ $EUID == 0 && $# == 1 ]] || fail 'requires one operation as root'
 # Reject symlink traversal for every directory used as a privileged mount/state path.
 safe_dir() {
@@ -103,6 +108,7 @@ create() {
  [[ ! -e /run/live/setup-efi/live-data.conf && ! -e /run/live/setup-efi/live-data.pending ]] || fail 'existing or incomplete data setup; refusing creation'
  creation_checks
  [[ ! -e /dev/mapper/live-data ]] || fail 'mapping name already occupied'
+ clear_prompt_screen
  lsblk -o NAME,TYPE,SIZE,MODEL,SERIAL,TRAN,MOUNTPOINTS "$disk"
  echo 'Create encrypted storage in UNUSED SPACE on this boot USB only.'
  echo 'EFI and system partitions will be preserved. Existing data outside them may be overwritten.'
@@ -126,8 +132,15 @@ create() {
  udevadm settle --timeout=15
  data=$(lsblk -nrpo NAME,PARTN "$disk" | awk '$2 == 3 {print $1}')
  [[ -b $data ]] || fail 'new partition not visible; reboot and inspect pending setup'
- [[ -z $(wipefs --no-act --noheadings --output TYPE "$data") ]] || fail 'existing signatures in new extent; inspect manually'
- echo 'Enter a NEW encryption passphrase twice. It is not saved by the live system.'
+ signatures=$(wipefs --no-act --noheadings --output DEVICE,OFFSET,TYPE,UUID "$data")
+ if [[ -n $signatures ]]; then
+  echo 'Found signatures in the proposed encrypted partition (device offset, type, UUID):' >&2
+  printf '%s\n' "$signatures" >&2
+  fail "existing signatures in $data; no data was formatted; inspect manually"
+ fi
+ clear_prompt_screen
+ echo 'Create the encrypted data partition'
+ echo 'Enter a NEW passphrase twice. It is not saved by the live system.'
  cryptsetup luksFormat --type luks2 --verify-passphrase "$data" </dev/tty
  cryptsetup open --type luks2 "$data" live-data </dev/tty
  mapped=1
@@ -143,6 +156,7 @@ create() {
 }
 activate() {
  # Uses the existing strict same-USB/PARTUUID/LUKS UUID verification.
+ clear_prompt_screen
  /usr/bin/live-data unlock
  exec 9>/run/live/data.lock
  flock -x 9

@@ -1,0 +1,16 @@
+From: amd64-extree maintainers
+Subject: [PATCH] clients/terminal: omit UTF-8 string terminator from key input
+
+xkb_keysym_to_utf8() returns a byte count that includes the trailing NUL.
+That NUL is not terminal input. Sending it after non-ASCII keypresses makes
+terminal echo display ^@ and can confuse terminal applications. Add only the
+UTF-8 payload length to the bytes written to the pty.
+
+This is a local fix for the pinned Weston 16.0.0 source, based on the
+xkbcommon API contract documented in xkbcommon.h. No upstream commit is known.
+
+--- a/clients/terminal.c
++++ b/clients/terminal.c
+@@ -2576 +2576 @@
+-				len += ret;
++				len += ret > 0 ? ret - 1 : 0;

@@ -3,6 +3,11 @@ set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 unset BASH_ENV ENV CDPATH
 fail() { echo "Data: $*" >&2; exit 1; }
+clear_prompt_screen() {
+ # Only clear the boot setup console; an in-session terminal retains its output.
+ [[ -t 0 && $(tty 2>/dev/null || true) == /dev/tty1 ]] || return 0
+ printf '\033[H\033[2J' >/dev/tty1
+}
 [[ $EUID == 0 && $# == 1 ]] || fail 'requires one operation as root'
 [[ $1 == unlock || $1 == lock || $1 == status ]] || fail 'unsupported operation'
 [[ -d /run/live && ! -L /run/live && ! -L /data && -d /data ]] || fail 'unsafe directories'
@@ -57,7 +62,11 @@ if [[ $1 == lock ]]; then
 fi
 if mountpoint -q /data; then mount_ok || fail 'unexpected filesystem at /data'; echo 'Already unlocked'; exit 0; fi
 opened=0
-if [[ ! -e /dev/mapper/live-data ]]; then cryptsetup open --type luks2 "$data" live-data </dev/tty; opened=1; fi
+if [[ ! -e /dev/mapper/live-data ]]; then
+ clear_prompt_screen
+ cryptsetup open --type luks2 "$data" live-data </dev/tty
+ opened=1
+fi
 if ! mount -t ext4 -o nosuid,nodev /dev/mapper/live-data /data; then
  if [[ $opened == 1 ]]; then cryptsetup close live-data; fi
  fail 'mount failed; filesystem was not reformatted'

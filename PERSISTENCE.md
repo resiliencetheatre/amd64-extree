@@ -29,7 +29,8 @@ handed to activation after the manifest has been written durably.
 On later boots, the existing EFI manifest is checked and the local prompt
 asks for the existing passphrase. A wrong passphrase leads to a menu with
 **u** to retry, **e** to explicitly boot temporarily, and **p** to power off.
-A host-provisioned `--data` USB uses the same manifest and is also supported.
+USB data storage is created by live setup on first boot; there is no separate
+host-side USB writer.
 
 GRUB includes **ephemeral recovery** entries with both GL and Pixman. These
 skip all data opening and provisioning. They are useful for inspecting an
@@ -134,3 +135,43 @@ verify it remains untouched. Required tests:
 Read-only fixture tests: `python3 amd64-extree/tests/test_persistence.py`.
 They test guard decisions and path safety, not actual GPT writes, encryption,
 service ordering, power-loss durability or hardware behavior.
+
+
+### Incomplete first-time creation
+
+If provisioning added partition 3 but stopped at the signature check, the EFI
+`live-data.pending` marker remains and automatic creation will stay blocked. No
+LUKS or filesystem format has run. Do not retry creation or erase the marker.
+Boot with `live.persistence=off` for an ephemeral session if needed, then inspect
+the proposed extent read-only as root:
+
+```sh
+wipefs --no-act --output DEVICE,OFFSET,TYPE,UUID /dev/sda3
+sgdisk --print /dev/sda
+sgdisk --info=1 /dev/sda
+sgdisk --info=2 /dev/sda
+sgdisk --info=3 /dev/sda
+```
+
+Replace `/dev/sda` only with the verified boot USB device. Partition 1 and 2
+metadata should match the values recorded before creation. Do not run `wipefs`
+without `--no-act`, `mkfs`, `cryptsetup luksFormat`, or remove the pending marker
+until the reported signature and partition contents are understood. The setup
+script now reports signature type, offset and UUID to aid that inspection.
+
+
+To reflash, run these commands from the Buildroot checkout after checking the
+USB identity with `lsblk` and unmounting its partitions. Replace `/dev/sdc` if
+needed; it is an example whole-device name:
+
+```sh
+sudo dd if=/dev/zero of=/dev/sdc3 bs=1M count=16 conv=fsync status=progress
+sudo dd if=output/images/usb-live.img of=/dev/sdc status=progress
+sync
+```
+
+The first command removes the old LUKS header in the first 16 MiB of the
+existing partition 3; it does not erase the remainder of that partition. The
+image write does not touch USB sectors beyond the image size. Preserve needed
+data and any LUKS header backup before re-imaging. If first-boot setup finds
+signatures elsewhere in the proposed data extent, stop for manual inspection.

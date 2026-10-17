@@ -43,6 +43,7 @@ build = pathlib.Path(sys.argv[1])
 terminals = list((build / 'weston-16.0.0').rglob('terminal.c'))
 assert terminals, 'Weston terminal source not found'
 assert any(re.search(r'WESTON_OPTION_STRING\s*,\s*"shell"', p.read_text()) for p in terminals), 'Verify weston-terminal --shell before shipping'
+assert any('len += ret > 0 ? ret - 1 : 0;' in p.read_text() for p in terminals), 'Weston terminal UTF-8 NUL fix is missing'
 source = (build / 'webkitgtk-2.52.4/Tools/MiniBrowser/gtk/main.c').read_text()
 assert 'g_get_user_data_dir()' in source and 'g_get_user_cache_dir()' in source, 'Verify MiniBrowser XDG profile paths before shipping'
 PY
